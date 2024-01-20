@@ -6,3 +6,4 @@ server.jar
 /plugins/MyCoolPlugin.py
 Pipfile.lock
 Pipfile
+homura/
