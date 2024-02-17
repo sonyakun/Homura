@@ -1,33 +1,24 @@
 import configparser
 import os
 import math
-from . import PluginLoader
-from . import WorldData
+from .PluginLoader import PluginLoader
+from .WorldData import WorldData
 
 from quarry.net.server import ServerProtocol
 from quarry.data.data_packs import data_packs, dimension_types
 from quarry.types.nbt import RegionFile, TagCompound, TagLongArray, TagRoot
 from quarry.types.chunk import BlockArray, PackedArray
 from quarry.net.protocol import Protocol
-from quarry.types.registry import LookupRegistry
 from twisted.internet import reactor
 
 from .lognk import log
-import importlib
+from .Config import Config
 
-ini = configparser.ConfigParser()
-ini.read("./Homura.ini", "UTF-8")
+from .events.PlayerJoinEvent import PlayerJoinEvent
+from .events.PlayerQuitEvent import PlayerQuitEvent
 
 
 class HomuraServerProtocol(ServerProtocol):
-	global ini
-
-	emptyHeight = TagRoot({"": TagCompound({
-		"MOTION_BLOCKING": TagLongArray(PackedArray.empty_height())
-	})})
-
-	registry = LookupRegistry.from_jar(os.path.join(os.getcwd(), "assets", "registry", "server.jar"))
-
 	class chunk:
 		x = 0
 		z = 0
@@ -58,7 +49,7 @@ class HomuraServerProtocol(ServerProtocol):
 
 		self.send_packet("player_position_and_look",
 			self.buff_type.pack("dddff?",
-				8, 200, 8, 0, 90, 0b00000),
+				8, 63, 8, 0, 90, 0b00000),
 			self.buff_type.pack_varint(0))
 		WorldData.sent_chunks[f'{self.uuid}'] = False
 		WorldData.counter[f'{self.uuid}'] = 0
@@ -67,13 +58,14 @@ class HomuraServerProtocol(ServerProtocol):
 		self.ticker.add_loop(20, self.update_keep_alive)
 		self.ticker.add_loop(1, self.send_next_from_queue)	
 
-		joinMessage = "\u00a7e%s has joined."
+		event = PlayerJoinEvent(self)
+
 		for plugin in PluginLoader.plugins:
 			if getattr(plugin.HomuraMCPlugin,'onJoinPlayer',False) != False:
-				joinMessage = plugin.HomuraMCPlugin.onJoinPlayer(self)
+				plugin.HomuraMCPlugin.onJoinPlayer(self,event)
 		# Announce player join
-		self.factory.send_chat(joinMessage)
-		log.logger.info(joinMessage)
+		self.factory.send_chat(event.message)
+		log.logger.info(event.message)
 
 	def send_perimiter(self, size, thread=True):
 		for x in range(-size, size + 1):
@@ -88,26 +80,28 @@ class HomuraServerProtocol(ServerProtocol):
 		for x in range(-size, size + 1):
 			for z in range(-size, size + 1):
 				if x == -size or x == size or z == -size or z == size:
-					WorldData.queue[f'{self.uuid}'].append([x, z, True, emptyHeight, [None]*16, [1]*256, []])
+					WorldData.queue[f'{self.uuid}'].append([x, z, True, WorldData.emptyHeight, [None]*16, [1]*256, []])
 
 	def send_empty_full(self, size):
 		for x in range(-size, size + 1):
 			for z in range(-size, size + 1):
 				if x == 0 and z == 0: continue
-				WorldData.queue[f'{self.uuid}'].append([x, z, True, emptyHeight, [None]*16, [1]*256, []])
+				WorldData.queue[f'{self.uuid}'].append([x, z, True, WorldData.emptyHeight, [None]*16, [1]*256, []])
 
 	def player_left(self):
 		ServerProtocol.player_left(self)
 		del WorldData.counter[f'{self.uuid}']
 		del WorldData.sent_chunks[f'{self.uuid}']
 		del WorldData.queue[f'{self.uuid}']
-		quitMessage = "\u00a7e%s has joined."
+
+		event = PlayerQuitEvent(self)
+
 		for plugin in PluginLoader.plugins:
 			if getattr(plugin.HomuraMCPlugin,'onQuitPlayer',False) != False:
-				quitMessage = plugin.HomuraMCPlugin.onQuitPlayer(self)
+				plugin.HomuraMCPlugin.onQuitPlayer(self,event)
 		# Announce player left
-		self.factory.send_chat(quitMessage)
-		log.logger.info(quitMessage)
+		self.factory.send_chat(event.message)
+		log.logger.info(event.message)
 
 
 	def update_keep_alive(self):
@@ -185,7 +179,7 @@ class HomuraServerProtocol(ServerProtocol):
 			if 'Palette' in section.value:
 				y = section.value["Y"].value
 				if 0 <= y < 16:
-					blocks = BlockArray.from_nbt(section, registry)
+					blocks = BlockArray.from_nbt(section, WorldData.registry)
 					block_light = None
 					sky_light = None
 					sections[y] = (blocks, block_light, sky_light)
@@ -240,12 +234,8 @@ class HomuraServerProtocol(ServerProtocol):
 				)
 		elif p_text == "/reloadplugins":
 			log.logger.info("Reloading Plugins...")
-			for plugin in PluginLoader.plugins:
-				log.logger.info(f"Plugin {plugin.HomuraMCPluginBackends.getPluginName()} reloading...")
-				if getattr(plugin.HomuraMCPlugin,'onReloadPlugin',False) != False:
-					plugin.HomuraMCPlugin.onReloadPlugin(self)
-				importlib.reload(plugin)
-				log.logger.info(f"Plugin {plugin.HomuraMCPluginBackends.getPluginName()} reload successful.")
+			pluginloader = PluginLoader()
+			pluginloader.reloadPlugins()
 			log.logger.info("Reloading Successful!")
 		else:
 			self.factory.send_chat("<%s> %s" % (self.display_name, p_text))
@@ -261,10 +251,8 @@ class HomuraServerProtocol(ServerProtocol):
 				quitMessage = plugin.HomuraMCPlugin.onPluginMessage(self,buff)
 
 	def packet_tab_complete(self,buff):
-		string, iscmd, haspos, pos = buff.unpack('s??q')
-		x = pos >> 38
-		y = pos << 52 >> 52 
-		z = pos << 26 >> 38
+		string, iscmd, haspos = buff.unpack('s??')
+		x,y,z = buff.unpack_position()
 		log.logger.info(f"{self.display_name} tab> {string}")
 		self.send_packet('tab_complete',
 				self.buff_type.pack_varint(2),
@@ -281,11 +269,34 @@ class HomuraServerProtocol(ServerProtocol):
 	def packet_player_block_placement(self,buff):
 		status = buff.unpack_varint()
 		x,y,z = buff.unpack_position()
-		face = buff.unpack('b')
-		log.logger.info(f"{self.display_name} block placement: {status},({x},{y},{z}),{face}")
+		face, cpx, cpy, cpz, inside = buff.unpack('bfff?')
+		log.logger.info(f"{self.display_name} block placement: {status},({x},{y},{z}),{face},({cpx},{cpy},{cpz}),{inside}")
+	
+	def packet_entity_action(self,buff):
+		entity = buff.unpack_varint()
+		action = buff.unpack_varint()
+		jump_boost = buff.unpack_varint()
+		log.logger.info(f"{self.display_name} entity action: {entity},{action},{jump_boost}")
 
-	def open_gui(self, winid:int, wintype:int, title:str, slots:int = 0, entityid:int = 0):
-		if entityid == 0:
+	def packet_player_abilities(self,buff):
+		flag = buff.unpack('b')
+		log.logger.info(f"{self.display_name} player abilities: {flag}")
+
+	def packet_client_settings(self,buff):
+		locale,view_distance = buff.unpack('x5sb')
+		chat_mode = buff.unpack_varint()
+		chat_colors,displayed_skin_parts, = buff.unpack('?B')
+		main_hand = buff.unpack_varint()
+		log.logger.info(f"{self.display_name} client settings: {locale},{view_distance},{chat_mode},{chat_colors},{displayed_skin_parts},{main_hand}")
+
+	# Short (???)
+	# def packet_advancement_tab(self,buff):
+	#	action = buff.unpack_varint()
+	#	tab = buff.unpack_optional(buff.unpack_varint())
+	#	log.logger.info(f"{self.display_name} advancement tab: {action},{tab}")
+
+	def open_gui(self, winid:int, wintype:int, title:str, slots:int = 0, entityid:int = -1):
+		if entityid == -1:
 			self.send_packet('open_window',
 					self.buff_type.pack_varint(winid),
 					self.buff_type.pack_varint(wintype),

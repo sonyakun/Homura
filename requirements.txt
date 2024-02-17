@@ -1,5 +1,5 @@
 datetime
-configparser
+pyyaml
 colorama
 twisted
 certifi
@@ -8,3 +8,5 @@ cryptography
 cached_property
 tqdm
 requests
+PyOpenSSL
+service-identity

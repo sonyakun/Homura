@@ -7,3 +7,5 @@ server.jar
 Pipfile.lock
 Pipfile
 homura/
+/server_icon.png
+/config.yml
