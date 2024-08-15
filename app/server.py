@@ -122,7 +122,7 @@ class Server:
             return
         data = orjson.dumps(
             {
-                "version": {"name": "1.16.5", "protocol": protocolVersion},
+                "version": {"name": "Homura", "protocol": protocolVersion},
                 "players": {"max": cls.config.server.max_players, "online": 0},
                 "description": {"text": cls.config.server.motd},
             }
