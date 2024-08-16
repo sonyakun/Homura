@@ -1,8 +1,12 @@
 import asyncio
 import time
+import sys
 
 from app import Server, logger
 from app.config import Config
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 HOMURAMC = "2024.08.15β"
 
@@ -18,12 +22,14 @@ log.info("HomuraMC configuration file loaded successfully")
 
 async def main():
     server = await asyncio.start_server(
-        Server.serverLoop, config.server.ip, config.server.port
+        Server.serverLoop, config.listen.ip, config.listen.port
     )
     endTime = time.time()
     during = (endTime - startTime) * 1000
     during_s = during / 1000
-    log.info(f"Done ({during_s}s)! listening on {config.server.ip}:{config.server.port}...")
+    log.info(
+        f"Done ({during_s}s)! listening on {config.listen.ip}:{config.listen.port}..."
+    )
     await server.serve_forever()
 
 
