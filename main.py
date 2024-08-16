@@ -8,7 +8,7 @@ from app.config import Config
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-HOMURAMC = "2024.08.15β"
+HOMURAMC = "2024.08.16β"
 
 startTime = time.time()
 log = logger.get_module_logger("HomuraMC")
