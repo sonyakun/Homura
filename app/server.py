@@ -85,9 +85,6 @@ class Server:
             if not r & 128:
                 break
         nextState = Utils.decodeVarInt(received)
-        if nextState != 1 and nextState != 2:
-            writer.close()
-            return
 
         if nextState == 1:
             await cls.sendServerDetails(
@@ -95,6 +92,9 @@ class Server:
             )
         elif nextState == 2:
             await cls.login(reader, writer, protocolVersion, address, port, nextState)
+        else:
+            writer.close()
+            return
 
     @classmethod
     async def sendServerDetails(
@@ -122,9 +122,9 @@ class Server:
             return
         data = orjson.dumps(
             {
-                "version": {"name": "Homura", "protocol": protocolVersion},
+                "version": {"name": "Homura", "protocol": 754},
                 "players": {"max": cls.config.server.max_players, "online": 0},
-                "description": {"text": cls.config.server.motd},
+                "description": {"text": cls.config.detail.motd},
             }
         )
         data = b"\x00" + Utils.encodeVarInt(len(data)) + data
@@ -276,14 +276,25 @@ class Server:
                     writer.close()
                     return
 
-        player = Player.model_validate(hasJoinedResponse)
+        player: Player = Player.model_validate(hasJoinedResponse)
         cls.logger.info(f"{player.name} is trying connect...")
         print(player)
 
+        """
         data = orjson.dumps({"text": "まだ実装してません(´・ω・｀)"})
         data = b"\x00" + Utils.encodeVarInt(len(data)) + data
         data = Utils.encodeVarInt(len(data)) + data
         data = encryptor.update(data)
         writer.write(data)
+        """
+
+        data = Utils.encodeVarInt(cls.config.server.compression_threshold)
+        data = b"\x03" + Utils.encodeVarInt(len(data)) + data
+        writer.write(Utils.encodeVarInt(len(data)) + data)
         await writer.drain()
-        writer.close()
+
+        data = player.id.bytes + Utils.packString(player.name)
+        data = b"\x03" + Utils.encodeVarInt(len(data)) + data
+        data = Utils.packPacket(data, cls.config.server.compression_threshold)
+        writer.write(data)
+        await writer.drain()

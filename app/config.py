@@ -1,20 +1,26 @@
 import os
 
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 
 
 class Config:
     _instance = None
     default_config = {
-        "server": {
+        "detail": {
             "name": "HomuraMC",
+            "motd": "A HomuraMC server",
+        },
+        "server": {
+            "max_players": 20,
+            "online_mode": True,
+            "compression_threshold": 256,
+        },
+        "listen": {
             "ip": "0.0.0.0",
             "port": 25565,
-            "max_players": 20,
-            "motd": "A HomuraMC server",
-            "online_mode": True,
-        }
+        },
     }
+    config: DictConfig = None
 
     def __new__(cls, file_path="homura.yml"):
         if cls._instance is None:
